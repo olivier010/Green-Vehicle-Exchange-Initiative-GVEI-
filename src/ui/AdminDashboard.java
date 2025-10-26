@@ -7,6 +7,49 @@ import java.sql.*;
 import java.util.Timer;
 import java.util.TimerTask;
 
+// Canvas to draw a simple bar chart
+class StatsChartCanvas extends Canvas {
+
+    private int pending, approved, rejected;
+
+    public StatsChartCanvas(int pending, int approved, int rejected) {
+        this.pending = pending;
+        this.approved = approved;
+        this.rejected = rejected;
+        setSize(400, 300);
+    }
+
+    @Override
+    public void paint(Graphics g) {
+        int max = Math.max(pending, Math.max(approved, rejected));
+        if (max == 0) max = 1; // avoid division by zero
+        int width = 80;
+        int spacing = 50;
+        int baseY = 250;
+
+        // Pending - Red
+        g.setColor(Color.RED);
+        int pendingHeight = (int) ((pending / (double) max) * 200);
+        g.fillRect(spacing, baseY - pendingHeight, width, pendingHeight);
+        g.drawString("Pending", spacing + 10, baseY + 20);
+        g.drawString(String.valueOf(pending), spacing + 25, baseY - pendingHeight - 5);
+
+        // Approved - Green
+        g.setColor(Color.GREEN);
+        int approvedHeight = (int) ((approved / (double) max) * 200);
+        g.fillRect(spacing*2 + width, baseY - approvedHeight, width, approvedHeight);
+        g.drawString("Approved", spacing*2 + width + 10, baseY + 20);
+        g.drawString(String.valueOf(approved), spacing*2 + width + 25, baseY - approvedHeight - 5);
+
+        // Rejected - Gray
+        g.setColor(Color.GRAY);
+        int rejectedHeight = (int) ((rejected / (double) max) * 200);
+        g.fillRect(spacing*3 + width*2, baseY - rejectedHeight, width, rejectedHeight);
+        g.drawString("Rejected", spacing*3 + width*2 + 10, baseY + 20);
+        g.drawString(String.valueOf(rejected), spacing*3 + width*2 + 25, baseY - rejectedHeight - 5);
+    }
+}
+
 public class AdminDashboard extends Frame implements ActionListener {
 
     Label lblTitle = new Label("Admin Dashboard - GVEI", Label.CENTER);
@@ -24,6 +67,7 @@ public class AdminDashboard extends Frame implements ActionListener {
     public AdminDashboard() {
         setTitle("Admin Dashboard - GVEI");
         setSize(800, 600);
+        setLocationRelativeTo(null); // center screen
         setLayout(new GridLayout(7, 1, 10, 10));
 
         add(lblTitle);
@@ -48,12 +92,12 @@ public class AdminDashboard extends Frame implements ActionListener {
             public void run() {
                 loadOfferCounts();
             }
-        }, 0, 5000); // delay 0ms, repeat every 5000ms
+        }, 0, 5000);
 
         setVisible(true);
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
-                timer.cancel(); // stop the timer
+                timer.cancel();
                 dispose();
                 System.exit(0);
             }
@@ -88,7 +132,7 @@ public class AdminDashboard extends Frame implements ActionListener {
         } else if (e.getSource() == btnStats) {
             showStatistics();
         } else if (e.getSource() == btnLogout) {
-            timer.cancel(); // stop auto-refresh
+            timer.cancel();
             new LoginFrame();
             dispose();
         }
@@ -98,30 +142,42 @@ public class AdminDashboard extends Frame implements ActionListener {
         try (Connection conn = DBConnection.getConnection();
              Statement stmt = conn.createStatement()) {
 
-            ResultSet rs1 = stmt.executeQuery("SELECT COUNT(*) AS total FROM exchange_offers WHERE status='approved'");
-            rs1.next();
-            int totalExchanged = rs1.getInt("total");
+            ResultSet rsPending = stmt.executeQuery("SELECT COUNT(*) AS pending FROM exchange_offers WHERE status='applied'");
+            rsPending.next();
+            int pending = rsPending.getInt("pending");
 
-            ResultSet rs2 = stmt.executeQuery("SELECT SUM(exchange_value * subsidy_percent / 100) AS total_subsidy FROM exchange_offers WHERE status='approved'");
-            rs2.next();
-            double totalSubsidy = rs2.getDouble("total_subsidy");
+            ResultSet rsApproved = stmt.executeQuery("SELECT COUNT(*) AS approved FROM exchange_offers WHERE status='approved'");
+            rsApproved.next();
+            int approved = rsApproved.getInt("approved");
 
-            int carbonReduction = totalExchanged; // assume 1 ton per vehicle
+            ResultSet rsRejected = stmt.executeQuery("SELECT COUNT(*) AS rejected FROM exchange_offers WHERE status='rejected'");
+            rsRejected.next();
+            int rejected = rsRejected.getInt("rejected");
 
-            String stats = "Total Exchanged Vehicles: " + totalExchanged +
-                    "\nTotal Subsidies: $" + totalSubsidy +
-                    "\nEstimated Carbon Reduction: " + carbonReduction + " tons";
+            // Display chart dialog
+            Dialog chartDialog = new Dialog(this, "Exchange Offer Statistics", true);
+            chartDialog.setSize(500, 400);
+            chartDialog.setLayout(new BorderLayout());
 
-            showMessage(stats);
+            StatsChartCanvas chart = new StatsChartCanvas(pending, approved, rejected);
+            chartDialog.add(chart, BorderLayout.CENTER);
 
-        } catch (Exception ex) {
+            Button btnClose = new Button("Close");
+            btnClose.addActionListener(ae -> chartDialog.dispose());
+            Panel panel = new Panel();
+            panel.add(btnClose);
+            chartDialog.add(panel, BorderLayout.SOUTH);
+
+            chartDialog.setVisible(true);
+
+        } catch (SQLException ex) {
             ex.printStackTrace();
             showMessage("Error fetching statistics: " + ex.getMessage());
         }
     }
 
     private void showMessage(String msg) {
-        Dialog d = new Dialog(this, "Statistics", true);
+        Dialog d = new Dialog(this, "Message", true);
         d.setLayout(new FlowLayout());
         d.add(new Label(msg));
         Button ok = new Button("OK");
