@@ -15,16 +15,27 @@ public class LoginFrame extends Frame implements ActionListener {
     Button btnRegister = new Button("Register");
 
     public LoginFrame() {
-        setLayout(new GridLayout(5, 2, 10, 10));
         setTitle("Green Vehicle Exchange Initiative");
         setSize(800, 600);
+        setLocationRelativeTo(null);
+        setLayout(new BorderLayout(20, 20));
+
+        lblTitle.setFont(new Font("Arial", Font.BOLD, 24));
+        add(lblTitle, BorderLayout.NORTH);
+
+        Panel centerPanel = new Panel(new GridLayout(2, 2, 10, 10));
+        centerPanel.add(lblEmail);
+        centerPanel.add(txtEmail);
+        centerPanel.add(lblPassword);
+        centerPanel.add(txtPassword);
+        add(centerPanel, BorderLayout.CENTER);
+
+        Panel bottomPanel = new Panel(new FlowLayout());
+        bottomPanel.add(btnLogin);
+        bottomPanel.add(btnRegister);
+        add(bottomPanel, BorderLayout.SOUTH);
 
         txtPassword.setEchoChar('*');
-
-        add(lblTitle); add(new Label(""));
-        add(lblEmail); add(txtEmail);
-        add(lblPassword); add(txtPassword);
-        add(btnLogin); add(btnRegister);
 
         btnLogin.addActionListener(this);
         btnRegister.addActionListener(this);
@@ -40,9 +51,8 @@ public class LoginFrame extends Frame implements ActionListener {
 
     @Override
     public void actionPerformed(ActionEvent e) {
-        if (e.getSource() == btnLogin) {
-            loginUser();
-        } else if (e.getSource() == btnRegister) {
+        if (e.getSource() == btnLogin) loginUser();
+        else if (e.getSource() == btnRegister) {
             new RegisterFrame();
             dispose();
         }
@@ -51,26 +61,19 @@ public class LoginFrame extends Frame implements ActionListener {
     private void loginUser() {
         String email = txtEmail.getText();
         String pass = txtPassword.getText();
-
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pst = conn.prepareStatement(
                      "SELECT * FROM users WHERE email=? AND password=?")) {
             pst.setString(1, email);
             pst.setString(2, pass);
             ResultSet rs = pst.executeQuery();
-
             if (rs.next()) {
                 String role = rs.getString("role");
                 int userId = rs.getInt("user_id");
                 dispose();
-                if (role.equals("citizen")) {
-                    new CitizenDashboard(userId);
-                } else {
-                    new AdminDashboard();
-                }
-            } else {
-                showMessage("Invalid credentials!");
-            }
+                if (role.equals("citizen")) new CitizenDashboard(userId);
+                else new AdminDashboard();
+            } else showMessage("Invalid credentials!");
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -83,7 +86,7 @@ public class LoginFrame extends Frame implements ActionListener {
         Button ok = new Button("OK");
         ok.addActionListener(ae -> d.dispose());
         d.add(ok);
-        d.setSize(250, 100);
+        d.setSize(300, 150);
         d.setVisible(true);
     }
 }
