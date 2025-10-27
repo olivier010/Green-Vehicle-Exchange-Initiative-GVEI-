@@ -3,40 +3,59 @@ package ui;
 import db.DBConnection;
 import java.awt.*;
 import java.awt.event.*;
+import java.io.FileWriter;
 import java.sql.*;
+import java.util.ArrayList;
 
 public class ExchangeOffersFrame extends Frame implements ActionListener {
 
     Label lblTitle = new Label("Exchange Offers", Label.CENTER);
+    TextField txtSearch = new TextField(20);
+    Choice choiceFilter = new Choice();
     TextArea taOffers = new TextArea(20, 60);
     Button btnApprove = new Button("Approve");
     Button btnReject = new Button("Reject");
     Button btnBack = new Button("Back");
+    Button btnExport = new Button("Export CSV");
+    Button btnFilter = new Button("Search");
 
     int userId = -1; // -1 for admin view
     boolean isAdmin;
 
+    ArrayList<Integer> offerIds = new ArrayList<>(); // track visible offer IDs for filtering
+
     public ExchangeOffersFrame() { // Admin constructor
         this.isAdmin = true;
         setupFrame();
-        loadOffers();
+        loadOffers(null, null);
     }
 
     public ExchangeOffersFrame(int userId) { // Citizen constructor
         this.userId = userId;
         this.isAdmin = false;
         setupFrame();
-        loadOffers();
+        loadOffers(null, null);
     }
 
     private void setupFrame() {
         setTitle("Exchange Offers - GVEI");
-        setSize(800, 600);
+        setSize(900, 700);
         setLocationRelativeTo(null);
-        setLayout(new BorderLayout(20, 20));
+        setLayout(new BorderLayout(10, 10));
 
         lblTitle.setFont(new Font("Arial", Font.BOLD, 24));
         add(lblTitle, BorderLayout.NORTH);
+
+        Panel topPanel = new Panel(new FlowLayout());
+        topPanel.add(new Label("Search:"));
+        topPanel.add(txtSearch);
+
+        choiceFilter.add("All"); choiceFilter.add("applied"); choiceFilter.add("approved"); choiceFilter.add("rejected");
+        topPanel.add(new Label("Status:")); topPanel.add(choiceFilter);
+
+        topPanel.add(btnFilter); topPanel.add(btnExport);
+
+        add(topPanel, BorderLayout.NORTH);
 
         taOffers.setEditable(false);
         add(taOffers, BorderLayout.CENTER);
@@ -52,6 +71,8 @@ public class ExchangeOffersFrame extends Frame implements ActionListener {
         btnApprove.addActionListener(this);
         btnReject.addActionListener(this);
         btnBack.addActionListener(this);
+        btnFilter.addActionListener(this);
+        btnExport.addActionListener(this);
 
         setVisible(true);
         addWindowListener(new WindowAdapter() {
@@ -63,7 +84,10 @@ public class ExchangeOffersFrame extends Frame implements ActionListener {
         });
     }
 
-    private void loadOffers() {
+    private void loadOffers(String search, String statusFilter) {
+        taOffers.setText("");
+        offerIds.clear();
+
         try (Connection conn = DBConnection.getConnection();
              Statement stmt = conn.createStatement()) {
 
@@ -74,12 +98,21 @@ public class ExchangeOffersFrame extends Frame implements ActionListener {
 
             if (!isAdmin) query += " WHERE u.user_id=" + userId;
 
-            ResultSet rs = stmt.executeQuery(query);
+            if (search != null && !search.isEmpty()) {
+                query += (query.contains("WHERE") ? " AND " : " WHERE ") +
+                        "(u.name LIKE '%" + search + "%' OR v.plate_no LIKE '%" + search + "%')";
+            }
 
-            taOffers.setText("");
+            if (statusFilter != null && !statusFilter.equals("All")) {
+                query += (query.contains("WHERE") ? " AND " : " WHERE ") + "eo.status='" + statusFilter + "'";
+            }
+
+            ResultSet rs = stmt.executeQuery(query);
             while (rs.next()) {
+                int id = rs.getInt("offer_id");
+                offerIds.add(id);
                 taOffers.append(
-                        "Offer ID: " + rs.getInt("offer_id") +
+                        "Offer ID: " + id +
                                 ", Owner: " + rs.getString("name") +
                                 ", Plate: " + rs.getString("plate_no") +
                                 ", Type: " + rs.getString("vehicle_type") +
@@ -103,32 +136,48 @@ public class ExchangeOffersFrame extends Frame implements ActionListener {
             if (isAdmin) new AdminDashboard();
             else new CitizenDashboard(userId);
         } else if (isAdmin && (e.getSource() == btnApprove || e.getSource() == btnReject)) {
-            String input = taOffers.getSelectedText();
-            if (input == null || input.isEmpty()) {
-                showMessage("Select the offer ID from text area first!");
+            String input = promptForOfferId();
+            if (input == null || input.isEmpty()) return;
+
+            int offerId;
+            try {
+                offerId = Integer.parseInt(input);
+            } catch (NumberFormatException ex) {
+                showMessage("Invalid Offer ID!");
                 return;
             }
-            int offerId = extractOfferId(input);
-            if (offerId == -1) return;
 
             String newStatus = (e.getSource() == btnApprove) ? "approved" : "rejected";
             updateOfferStatus(offerId, newStatus);
-            loadOffers();
+            loadOffers(txtSearch.getText(), choiceFilter.getSelectedItem());
+        } else if (e.getSource() == btnFilter) {
+            loadOffers(txtSearch.getText(), choiceFilter.getSelectedItem());
+        } else if (e.getSource() == btnExport) {
+            exportToCSV();
         }
     }
 
-    private int extractOfferId(String selectedText) {
-        try {
-            String[] parts = selectedText.split(",");
-            for (String part : parts) {
-                if (part.trim().startsWith("Offer ID:")) {
-                    return Integer.parseInt(part.trim().substring(9).trim());
-                }
-            }
-        } catch (Exception ex) {
-            showMessage("Invalid selection! Make sure to select full line starting with 'Offer ID:'");
-        }
-        return -1;
+    private String promptForOfferId() {
+        Dialog dialog = new Dialog(this, "Enter Offer ID", true);
+        dialog.setLayout(new FlowLayout());
+
+        Label lbl = new Label("Offer ID:");
+        TextField txt = new TextField(10);
+        Button ok = new Button("OK");
+
+        final String[] result = {null};
+        ok.addActionListener(ae -> {
+            result[0] = txt.getText();
+            dialog.dispose();
+        });
+
+        dialog.add(lbl);
+        dialog.add(txt);
+        dialog.add(ok);
+        dialog.setSize(300, 150);
+        dialog.setVisible(true);
+
+        return result[0];
     }
 
     private void updateOfferStatus(int offerId, String status) {
@@ -136,11 +185,27 @@ public class ExchangeOffersFrame extends Frame implements ActionListener {
              PreparedStatement pst = conn.prepareStatement("UPDATE exchange_offers SET status=? WHERE offer_id=?")) {
             pst.setString(1, status);
             pst.setInt(2, offerId);
-            pst.executeUpdate();
-            showMessage("Offer " + offerId + " marked as " + status);
+            int updated = pst.executeUpdate();
+            if (updated > 0) showMessage("Offer " + offerId + " marked as " + status);
+            else showMessage("Offer ID not found!");
         } catch (SQLException ex) {
             ex.printStackTrace();
             showMessage("Error updating offer: " + ex.getMessage());
+        }
+    }
+
+    private void exportToCSV() {
+        try (FileWriter fw = new FileWriter("exchange_offers.csv")) {
+            fw.write("OfferID,Owner,Plate,Type,Fuel,Value,Subsidy,Status\n");
+            String[] lines = taOffers.getText().split("\n");
+            for (String line : lines) {
+                String csvLine = line.replaceAll("Offer ID: |, Owner: |, Plate: |, Type: |, Fuel: |, Value: \\$|, Subsidy: |%, Status: ", ",");
+                fw.write(csvLine + "\n");
+            }
+            showMessage("Exported successfully to exchange_offers.csv");
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            showMessage("Error exporting CSV: " + ex.getMessage());
         }
     }
 
